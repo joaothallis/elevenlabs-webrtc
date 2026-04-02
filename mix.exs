@@ -25,18 +25,18 @@ defmodule ElevenlabsWebrtc.MixProject do
 
   defp deps do
     [
-      {:phoenix, "~> 1.7.14"},
-      {:phoenix_html, "~> 4.1"},
-      {:phoenix_live_view, "~> 0.20.17"},
-      {:phoenix_live_reload, "~> 1.2", only: :dev},
-      {:floki, ">= 0.30.0"},
+      {:phoenix, "~> 1.7.18"},
+      {:phoenix_html, "~> 4.2"},
+      {:phoenix_live_view, "~> 1.0"},
+      {:phoenix_live_reload, "~> 1.5", only: :dev},
+      {:floki, ">= 0.36.0"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:jason, "~> 1.2"},
-      {:bandit, "~> 1.5"},
+      {:bandit, "~> 1.6"},
       {:req, "~> 0.5"},
-      {:ex_webrtc, "~> 0.8"},
+      {:ex_webrtc, "~> 0.9"},
       {:websockex, "~> 0.4"}
     ]
   end
