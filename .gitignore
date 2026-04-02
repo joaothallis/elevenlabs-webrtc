@@ -1,7 +1,16 @@
-# Dependencies
+# Elixir/Phoenix
+/deps/
+/_build/
+/priv/static/assets/
+erl_crash.dump
+*.ez
+*.beam
+
+# Node (assets)
+/assets/node_modules/
 node_modules/
 
-# Environment variables (NEVER commit these!)
+# Environment
 .env
 .env.local
 .env.*.local
@@ -13,10 +22,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # Logs
 *.log
 npm-debug.log*
-
-# Build cache
-.cache/

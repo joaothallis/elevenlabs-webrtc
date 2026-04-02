@@ -1,54 +1,82 @@
-# ElevenLabs WebRTC Demo
+# MedSimAI Patient Builder
 
-Low-latency browser demo that talks to an ElevenLabs agent over WebRTC using the turnkey LiveKit stack described in the ElevenLabs documentation (see `openapi.json:1` → `/v1/convai/conversation/token`). The backend simply proxies the WebRTC token endpoint so your API key never leaves the server, and the frontend uses the official LiveKit JavaScript SDK to capture the microphone, join the LiveKit room, and stream audio both ways.
+An Elixir/Phoenix LiveView application for creating interactive standardized patient simulations using ElevenLabs ConvAI and WebRTC. Medical students can have realistic conversations with AI-powered patients that respond adaptively based on the student's clinical approach.
+
+Built with:
+- **Elixir** + **Phoenix** + **LiveView** for the full-stack web application
+- **ex_webrtc** for WebRTC infrastructure
+- **ElevenLabs ConvAI API** for AI-powered conversational agents
+- **Req** for HTTP client
 
 ## Prerequisites
 
-- Node.js 18+ (Node 20/22/24 work out of the box).
-- An ElevenLabs API key with ConvAI access and the ID of the agent you want to talk to.
-- The LiveKit URL associated with your ConvAI workspace (the docs list the `wss://…` URL you should use; add it to your `.env` alongside the key and agent id).
+- Elixir 1.14+ and Erlang/OTP 25+
+- An ElevenLabs API key with ConvAI access
 
-## Getting started
+## Getting Started
 
-1. Copy `.env.example` to `.env` and fill in the values you received from ElevenLabs:
+1. Copy `.env.example` to `.env` and fill in your credentials:
 
    ```bash
    cp .env.example .env
-   # edit the file to set ELEVEN_API_KEY=..., ELEVEN_AGENT_ID=..., LIVEKIT_URL=wss://...
+   # Set ELEVEN_API_KEY and optionally ELEVEN_AGENT_ID
    ```
 
-2. Install dependencies once:
+2. Install dependencies:
 
    ```bash
-   npm install
+   mix setup
    ```
 
-3. Start the dev server:
+3. Start the Phoenix server:
 
    ```bash
-   npm run dev
+   source .env && mix phx.server
    ```
 
-4. Visit [http://localhost:3000](http://localhost:3000), type an optional display name, and click **Start conversation**. The page will:
+4. Visit [http://localhost:4000](http://localhost:4000)
 
-   - Fetch `/api/config` to learn the LiveKit host the server exposes.
-   - POST to `/api/webrtc-token`, which hits `GET https://api.elevenlabs.io/v1/convai/conversation/token` with your agent id and returns the JWT token documented in `openapi.json:1`.
-   - Create a LiveKit room, publish your microphone, and subscribe to the agent’s remote audio stream.
+## Features
 
-The log panel shows room events so you can debug connection issues quickly.
+- **Simple Patient**: Quick agent creation with name, history, voice, and language
+- **Adaptive Patient Designer**: Create patients with dynamic behavioral pivots that respond to student approach (empathy, clinical coldness, etc.)
+- **Voice Library**: Browse and add voices from the ElevenLabs shared voice library
+- **Real-time Conversation**: WebRTC-powered low-latency audio conversations with AI patients
+- **Agent Management**: Create, edit, delete, and select agents for conversation
 
-## Project structure
+## Project Structure
 
 | Path | Purpose |
 | --- | --- |
-| `server.js` | Minimal Express server that serves the static files, exposes `/api/config`, and securely exchanges WebRTC tokens with ElevenLabs. |
-| `public/index.html`, `public/styles.css` | Simple UI to start/stop a session and show event logs. |
-| `public/app.js` | Client logic that calls the backend, connects to LiveKit via `livekit-client@2.x`, and manages audio tracks. |
-| `.env.example` | Documents the environment variables you must provide. |
-| `openapi.json` | Offline copy of the ElevenLabs API schema used for reference. |
+| `lib/elevenlabs_webrtc/` | Core business logic |
+| `lib/elevenlabs_webrtc/elevenlabs_client.ex` | ElevenLabs API client (agents, voices, WebRTC tokens) |
+| `lib/elevenlabs_webrtc/workflow.ex` | Workflow builder for adaptive patient pivots |
+| `lib/elevenlabs_webrtc_web/` | Phoenix web layer |
+| `lib/elevenlabs_webrtc_web/live/patient_live.ex` | Main LiveView with all UI logic |
+| `lib/elevenlabs_webrtc_web/controllers/api_controller.ex` | JSON API endpoints (token proxy, agents, voices) |
+| `assets/js/hooks/conversation.js` | LiveView JS hook for WebRTC conversation |
+| `assets/js/hooks/voice_preview.js` | LiveView JS hook for voice audio preview |
+| `assets/css/app.css` | Application styles |
+| `config/runtime.exs` | Runtime configuration (env vars) |
+
+## Architecture
+
+The application follows the standard Phoenix LiveView pattern:
+
+1. **LiveView** handles all UI state and user interactions server-side
+2. **JS Hooks** manage browser-side WebRTC audio (microphone capture, playback)
+3. **API Controller** proxies ElevenLabs API calls to keep the API key server-side
+4. **ElevenlabsClient** module encapsulates all HTTP communication with ElevenLabs
+
+The WebRTC conversation flow:
+1. User selects an agent and clicks "Start Conversation"
+2. LiveView JS hook fetches a WebRTC token from `/api/webrtc-token`
+3. The ElevenLabs client SDK establishes a WebRTC connection
+4. Audio streams bidirectionally between browser and ElevenLabs agent
+5. Conversation events are pushed back to LiveView for logging
 
 ## Notes
 
-- The token endpoint is rate-limited; don’t call it more often than necessary. Cache tokens client-side if you plan to reconnect quickly.
-- All sensitive values stay on the server—only the short-lived LiveKit JWT is sent to the browser.
-- You can extend the UI to show transcripts by subscribing to LiveKit data channels or ElevenLabs webhooks if needed.
+- All sensitive values (API keys) stay on the server
+- Only short-lived JWT tokens are sent to the browser
+- The ElevenLabs client SDK is loaded from CDN in the browser for WebRTC management
