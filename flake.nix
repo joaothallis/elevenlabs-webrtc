@@ -2,7 +2,7 @@
   description = "MedSimAI Patient Builder – Elixir/Phoenix/LiveView with ex_webrtc";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -11,9 +11,9 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        # Erlang/OTP 26 + Elixir 1.16 (well-tested combo for Phoenix 1.7)
-        erlang = pkgs.beam.packages.erlang_26;
-        elixir = erlang.elixir_1_16;
+        # Latest Erlang/OTP 27 + Elixir 1.18
+        erlang = pkgs.beam.packages.erlang_27;
+        elixir = erlang.elixir_1_18;
       in
       {
         devShells.default = pkgs.mkShell {
@@ -27,7 +27,7 @@
             pkgs.gcc
 
             # For esbuild (asset bundling)
-            pkgs.nodejs_20
+            pkgs.nodejs_22
 
             # Native deps for ex_webrtc / DTLS / SRTP
             pkgs.openssl
