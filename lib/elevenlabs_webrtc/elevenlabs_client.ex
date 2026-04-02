@@ -297,8 +297,8 @@ defmodule ElevenlabsWebrtc.ElevenlabsClient do
     end
   end
 
-  def get_signed_url do
-    aid = default_agent_id()
+  def get_signed_url(agent_id \\ nil) do
+    aid = agent_id || default_agent_id()
 
     if is_nil(aid) or aid == "" do
       {:error, 400, %{"error" => "Agent ID is required"}}

@@ -1,164 +1,204 @@
 /**
- * LiveView Hook for managing ElevenLabs WebRTC conversations.
+ * LiveView Hook for WebRTC conversation via ex_webrtc.
  *
- * This hook handles:
- * - Fetching WebRTC tokens from the server
- * - Starting/stopping conversations via the ElevenLabs client SDK
- * - Relaying conversation events back to the LiveView process
+ * This hook manages the browser-side RTCPeerConnection that connects
+ * to the Phoenix server's ex_webrtc PeerConnection. The server then
+ * bridges audio to/from ElevenLabs via WebSocket.
  *
- * Uses the ElevenLabs Conversation API which internally manages
- * WebRTC peer connections to their LiveKit infrastructure.
+ * Flow:
+ * 1. User clicks Start -> LiveView creates server-side PeerConnection
+ * 2. LiveView pushes "create_offer" -> this hook creates browser PeerConnection + offer
+ * 3. Hook sends SDP offer to LiveView -> LiveView passes to ex_webrtc -> gets answer
+ * 4. LiveView pushes "sdp_answer" -> hook sets remote description
+ * 5. ICE candidates exchanged via LiveView events
+ * 6. Connection established, audio flows: Browser <-> Phoenix (ex_webrtc) <-> ElevenLabs
  */
 const Conversation = {
   mounted() {
-    this.conversation = null;
+    this.pc = null;
+    this.localStream = null;
 
     const startBtn = this.el.querySelector("#start-btn");
     const stopBtn = this.el.querySelector("#stop-btn");
 
-    startBtn.addEventListener("click", () => this.startCall());
-    stopBtn.addEventListener("click", () => this.stopCall());
+    startBtn.addEventListener("click", () => {
+      startBtn.disabled = true;
+      // Tell LiveView to start the server-side PeerConnection
+      this.pushEvent("start_conversation", {});
+    });
 
-    // Cleanup on navigation
-    this.handleEvent("phx:page-loading-stop", () => {
-      if (this.conversation) {
-        this.conversation.endSession();
-        this.conversation = null;
+    stopBtn.addEventListener("click", () => {
+      this.cleanup();
+      this.pushEvent("stop_conversation", {});
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    });
+
+    // LiveView event: create an SDP offer
+    this.handleEvent("create_offer", async () => {
+      try {
+        await this.createPeerConnection();
+        await this.createAndSendOffer();
+      } catch (error) {
+        console.error("Failed to create offer:", error);
+        this.pushEvent("conversation_log", {
+          message: `Error creating offer: ${error.message}`,
+        });
       }
+    });
+
+    // LiveView event: set the SDP answer from the server
+    this.handleEvent("sdp_answer", async ({ sdp }) => {
+      try {
+        const answer = new RTCSessionDescription({ type: "answer", sdp });
+        await this.pc.setRemoteDescription(answer);
+        this.pushEvent("conversation_log", {
+          message: "SDP answer set, WebRTC connecting...",
+        });
+      } catch (error) {
+        console.error("Failed to set remote description:", error);
+        this.pushEvent("conversation_log", {
+          message: `Error setting answer: ${error.message}`,
+        });
+      }
+    });
+
+    // LiveView event: add ICE candidate from server
+    this.handleEvent("ice_candidate", ({ candidate }) => {
+      if (this.pc && candidate) {
+        this.pc
+          .addIceCandidate(new RTCIceCandidate(candidate))
+          .catch((err) =>
+            console.warn("Failed to add ICE candidate:", err)
+          );
+      }
+    });
+
+    // LiveView event: conversation stopped by server
+    this.handleEvent("conversation_stopped", () => {
+      this.cleanup();
+      const startBtn = this.el.querySelector("#start-btn");
+      const stopBtn = this.el.querySelector("#stop-btn");
+      if (startBtn) startBtn.disabled = false;
+      if (stopBtn) stopBtn.disabled = true;
     });
   },
 
   destroyed() {
-    if (this.conversation) {
-      this.conversation.endSession();
-      this.conversation = null;
-    }
+    this.cleanup();
   },
 
-  async startCall() {
-    const startBtn = this.el.querySelector("#start-btn");
-    const stopBtn = this.el.querySelector("#stop-btn");
-    const agentId = startBtn.dataset.agentId;
+  async createPeerConnection() {
+    // Create the browser-side RTCPeerConnection
+    this.pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
 
-    if (!agentId) {
-      this.pushEvent("conversation_log", { message: "No agent selected" });
-      return;
-    }
+    // Handle ICE candidates - send to server via LiveView
+    this.pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        this.pushEvent("ice_candidate", {
+          candidate: {
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex,
+          },
+        });
+      }
+    };
 
-    startBtn.disabled = true;
-    stopBtn.disabled = true;
-    this.pushEvent("conversation_status", { status: "requesting token" });
-
-    try {
-      // Fetch WebRTC token from our Phoenix server
-      const tokenResp = await fetch("/api/webrtc-token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId }),
+    // Handle connection state changes
+    this.pc.onconnectionstatechange = () => {
+      const state = this.pc.connectionState;
+      this.pushEvent("conversation_log", {
+        message: `WebRTC connection: ${state}`,
       });
 
-      if (!tokenResp.ok) {
-        const err = await tokenResp.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to retrieve WebRTC token");
+      if (state === "connected") {
+        this.pushEvent("conversation_status", { status: "connected" });
+        const stopBtn = this.el.querySelector("#stop-btn");
+        if (stopBtn) stopBtn.disabled = false;
+      } else if (state === "failed" || state === "disconnected") {
+        this.pushEvent("conversation_status", { status: state });
       }
+    };
 
-      const { token } = await tokenResp.json();
-      if (!token) throw new Error("Server did not return a token");
+    // Handle ICE connection state
+    this.pc.oniceconnectionstatechange = () => {
+      this.pushEvent("conversation_log", {
+        message: `ICE connection: ${this.pc.iceConnectionState}`,
+      });
+    };
 
-      this.pushEvent("conversation_log", { message: "Fetched WebRTC token" });
-      this.pushEvent("conversation_status", { status: "connecting via WebRTC" });
+    // Handle remote audio track (agent's voice from ElevenLabs via server)
+    this.pc.ontrack = (event) => {
+      this.pushEvent("conversation_log", {
+        message: `Remote track received: ${event.track.kind}`,
+      });
 
-      // Dynamically import the ElevenLabs client
-      const { Conversation: ELConversation } = await import(
-        "https://cdn.jsdelivr.net/npm/@elevenlabs/client@latest/+esm"
-      );
+      if (event.track.kind === "audio") {
+        // Create an audio element to play the remote audio
+        const audio = document.createElement("audio");
+        audio.srcObject = new MediaStream([event.track]);
+        audio.autoplay = true;
+        audio.id = "remote-audio";
+        // Append to conversation section (hidden)
+        this.el.appendChild(audio);
+      }
+    };
 
-      this.conversation = await ELConversation.startSession({
-        conversationToken: token,
-        onConnect: () => {
-          this.pushEvent("conversation_log", { message: "WebRTC connected" });
-          this.pushEvent("conversation_status", { status: "connected" });
-          stopBtn.disabled = false;
+    // Capture microphone and add audio track to PeerConnection
+    try {
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
         },
-        onDisconnect: (details) => {
-          this.pushEvent("conversation_log", {
-            message: `Disconnected: ${details?.reason || "unknown reason"}`,
-          });
-          this.pushEvent("conversation_status", { status: "disconnected" });
-          this.conversation = null;
-          startBtn.disabled = false;
-          stopBtn.disabled = true;
-        },
-        onMessage: (message) => {
-          if (message.type === "agent_response") {
-            this.pushEvent("conversation_log", {
-              message: `Agent: ${message.message}`,
-            });
-          } else if (message.type === "user_transcript") {
-            this.pushEvent("conversation_log", {
-              message: `You: ${message.message}`,
-            });
-          } else if (message.type === "interruption") {
-            this.pushEvent("conversation_log", {
-              message: "Interruption detected",
-            });
-          } else if (message.type === "error") {
-            this.pushEvent("conversation_log", {
-              message: `Error: ${message.message || "Unknown error"}`,
-            });
-          }
-        },
-        onError: (error) => {
-          this.pushEvent("conversation_log", {
-            message: `Error: ${error.message || "Unknown error"}`,
-          });
-          console.error("Conversation error:", error);
-        },
-        onModeChange: (mode) => {
-          this.pushEvent("conversation_log", {
-            message: `Mode: ${mode.mode}`,
-          });
-        },
-        onStatusChange: (status) => {
-          this.pushEvent("conversation_log", {
-            message: `Status: ${status.status}`,
-          });
-        },
+        video: false,
+      });
+
+      this.localStream.getTracks().forEach((track) => {
+        this.pc.addTrack(track, this.localStream);
       });
 
       this.pushEvent("conversation_log", {
-        message: `Conversation started: ${this.conversation.getId()}`,
+        message: "Microphone captured",
       });
     } catch (error) {
       this.pushEvent("conversation_log", {
-        message: `Error: ${error.message}`,
+        message: `Microphone error: ${error.message}`,
       });
-      this.pushEvent("conversation_status", { status: "error" });
-      this.conversation = null;
-      startBtn.disabled = false;
-      stopBtn.disabled = true;
+      throw error;
     }
   },
 
-  async stopCall() {
-    const startBtn = this.el.querySelector("#start-btn");
-    const stopBtn = this.el.querySelector("#stop-btn");
+  async createAndSendOffer() {
+    const offer = await this.pc.createOffer();
+    await this.pc.setLocalDescription(offer);
 
-    stopBtn.disabled = true;
-    this.pushEvent("conversation_status", { status: "disconnecting" });
+    this.pushEvent("conversation_log", { message: "SDP offer created" });
 
-    if (this.conversation) {
-      try {
-        await this.conversation.endSession();
-      } catch (error) {
-        console.error("Error ending session:", error);
-      }
-      this.conversation = null;
+    // Send the offer to the server via LiveView
+    this.pushEvent("sdp_offer", { sdp: offer.sdp });
+  },
+
+  cleanup() {
+    // Stop microphone
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((track) => track.stop());
+      this.localStream = null;
     }
 
-    this.pushEvent("conversation_log", { message: "Conversation stopped" });
-    this.pushEvent("conversation_status", { status: "idle" });
-    startBtn.disabled = false;
+    // Close PeerConnection
+    if (this.pc) {
+      this.pc.close();
+      this.pc = null;
+    }
+
+    // Remove remote audio element
+    const audioEl = document.getElementById("remote-audio");
+    if (audioEl) audioEl.remove();
   },
 };
 

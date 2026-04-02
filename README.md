@@ -49,34 +49,50 @@ Built with:
 | Path | Purpose |
 | --- | --- |
 | `lib/elevenlabs_webrtc/` | Core business logic |
-| `lib/elevenlabs_webrtc/elevenlabs_client.ex` | ElevenLabs API client (agents, voices, WebRTC tokens) |
+| `lib/elevenlabs_webrtc/elevenlabs_client.ex` | ElevenLabs API client (agents, voices, tokens) |
+| `lib/elevenlabs_webrtc/peer_server.ex` | GenServer wrapping ex_webrtc PeerConnection |
+| `lib/elevenlabs_webrtc/elevenlabs_ws.ex` | WebSocket client for ElevenLabs conversation |
+| `lib/elevenlabs_webrtc/audio_codec.ex` | Audio codec bridge (Opus <-> PCM conversion) |
+| `lib/elevenlabs_webrtc/conversation_supervisor.ex` | DynamicSupervisor for conversation processes |
 | `lib/elevenlabs_webrtc/workflow.ex` | Workflow builder for adaptive patient pivots |
 | `lib/elevenlabs_webrtc_web/` | Phoenix web layer |
-| `lib/elevenlabs_webrtc_web/live/patient_live.ex` | Main LiveView with all UI logic |
-| `lib/elevenlabs_webrtc_web/controllers/api_controller.ex` | JSON API endpoints (token proxy, agents, voices) |
-| `assets/js/hooks/conversation.js` | LiveView JS hook for WebRTC conversation |
+| `lib/elevenlabs_webrtc_web/live/patient_live.ex` | Main LiveView with UI + WebRTC signaling |
+| `lib/elevenlabs_webrtc_web/controllers/api_controller.ex` | JSON API endpoints (agents, voices) |
+| `assets/js/hooks/conversation.js` | LiveView JS hook for native WebRTC PeerConnection |
 | `assets/js/hooks/voice_preview.js` | LiveView JS hook for voice audio preview |
 | `assets/css/app.css` | Application styles |
 | `config/runtime.exs` | Runtime configuration (env vars) |
 
 ## Architecture
 
-The application follows the standard Phoenix LiveView pattern:
+```
+Browser                    Phoenix Server                ElevenLabs
+  |                            |                            |
+  |  WebRTC (ex_webrtc)        |   WebSocket (websockex)    |
+  |  SDP + ICE via LiveView    |                            |
+  |<=========================>|<=========================>|
+  |  Opus audio (RTP)          |  PCM audio (base64 JSON)   |
+  |  Mic capture + playback    |  Audio codec conversion    |
+  |                            |  PeerServer + ElevenlabsWs |
+```
 
-1. **LiveView** handles all UI state and user interactions server-side
-2. **JS Hooks** manage browser-side WebRTC audio (microphone capture, playback)
-3. **API Controller** proxies ElevenLabs API calls to keep the API key server-side
-4. **ElevenlabsClient** module encapsulates all HTTP communication with ElevenLabs
+The WebRTC connection is managed entirely by **ex_webrtc** on the server:
 
-The WebRTC conversation flow:
-1. User selects an agent and clicks "Start Conversation"
-2. LiveView JS hook fetches a WebRTC token from `/api/webrtc-token`
-3. The ElevenLabs client SDK establishes a WebRTC connection
-4. Audio streams bidirectionally between browser and ElevenLabs agent
-5. Conversation events are pushed back to LiveView for logging
+1. **User clicks "Start Conversation"** - LiveView starts a `PeerServer` (ex_webrtc `PeerConnection`)
+2. **SDP Signaling via LiveView** - Browser creates offer, sends via LiveView WebSocket to `PeerServer`, which creates answer using ex_webrtc
+3. **ICE Candidate Exchange** - Candidates flow through LiveView between browser and ex_webrtc
+4. **WebRTC Connected** - Browser sends microphone audio via RTP to Phoenix server
+5. **Audio Bridge** - `PeerServer` extracts audio from RTP, `ElevenlabsWs` forwards to ElevenLabs via WebSocket
+6. **Agent Response** - ElevenLabs sends audio back via WebSocket, `PeerServer` sends to browser via RTP
+7. **Transcripts** - Text events (agent responses, user transcripts) flow through LiveView to the UI
+
+### Audio Codec Conversion
+
+The browser sends **Opus** audio over WebRTC, while ElevenLabs expects **PCM 16-bit 16kHz mono** over WebSocket. The `AudioCodec` module handles this conversion. For production, install [`xav`](https://github.com/elixir-webrtc/xav) (FFmpeg wrapper) for proper Opus encode/decode.
 
 ## Notes
 
 - All sensitive values (API keys) stay on the server
-- Only short-lived JWT tokens are sent to the browser
-- The ElevenLabs client SDK is loaded from CDN in the browser for WebRTC management
+- WebRTC connection terminates at Phoenix, not at ElevenLabs directly
+- Audio is bridged server-side: Browser <-> ex_webrtc <-> ElevenLabs WebSocket
+- No ElevenLabs SDK in the browser - uses native `RTCPeerConnection` API

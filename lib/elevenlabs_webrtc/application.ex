@@ -8,6 +8,7 @@ defmodule ElevenlabsWebrtc.Application do
     children = [
       ElevenlabsWebrtcWeb.Telemetry,
       {Phoenix.PubSub, name: ElevenlabsWebrtc.PubSub},
+      ElevenlabsWebrtc.ConversationSupervisor,
       ElevenlabsWebrtcWeb.Endpoint
     ]
 

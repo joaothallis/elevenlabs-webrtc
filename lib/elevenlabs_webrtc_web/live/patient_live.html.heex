@@ -581,12 +581,7 @@
 
     <div class="controls">
       <div class="buttons">
-        <button
-          id="start-btn"
-          phx-click="conversation_log"
-          phx-value-message="starting"
-          data-agent-id={@current_agent_id}
-        >
+        <button id="start-btn" data-agent-id={@current_agent_id}>
           Start Conversation
         </button>
         <button id="stop-btn" disabled>Stop Conversation</button>

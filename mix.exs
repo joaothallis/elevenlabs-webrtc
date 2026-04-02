@@ -36,7 +36,8 @@ defmodule ElevenlabsWebrtc.MixProject do
       {:jason, "~> 1.2"},
       {:bandit, "~> 1.5"},
       {:req, "~> 0.5"},
-      {:ex_webrtc, "~> 0.8"}
+      {:ex_webrtc, "~> 0.8"},
+      {:websockex, "~> 0.4"}
     ]
   end
 

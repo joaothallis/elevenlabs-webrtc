@@ -54,6 +54,9 @@ defmodule ElevenlabsWebrtcWeb.PatientLive do
         show_conversation: false,
         conversation_status: "idle",
         log_entries: [],
+        # WebRTC conversation state
+        peer_server_pid: nil,
+        bridge_pid: nil,
         # Edit modal
         show_edit_modal: false,
         edit_agent: nil,
@@ -423,7 +426,77 @@ defmodule ElevenlabsWebrtcWeb.PatientLive do
      )}
   end
 
-  # WebRTC conversation events from JS hooks
+  # === WebRTC Signaling & Conversation ===
+
+  # Start a conversation: create PeerServer and signal browser to create offer
+  @impl true
+  def handle_event("start_conversation", _params, socket) do
+    agent_id = socket.assigns.current_agent_id
+
+    if is_nil(agent_id) do
+      {:noreply, put_flash(socket, :error, "Please select an agent first.")}
+    else
+      # Start the server-side PeerConnection
+      {:ok, peer_pid} =
+        ElevenlabsWebrtc.ConversationSupervisor.start_peer_server(live_view_pid: self())
+
+      socket =
+        socket
+        |> assign(peer_server_pid: peer_pid, conversation_status: "starting")
+        |> add_log("Starting WebRTC connection...")
+        # Tell the browser to create its PeerConnection and generate an offer
+        |> push_event("create_offer", %{})
+
+      {:noreply, socket}
+    end
+  end
+
+  # Receive SDP offer from browser, create answer, start ElevenLabs bridge
+  @impl true
+  def handle_event("sdp_offer", %{"sdp" => offer_sdp}, socket) do
+    peer_pid = socket.assigns.peer_server_pid
+
+    case ElevenlabsWebrtc.PeerServer.receive_offer(peer_pid, offer_sdp) do
+      {:ok, answer_sdp} ->
+        # Send the answer back to the browser
+        socket =
+          socket
+          |> push_event("sdp_answer", %{sdp: answer_sdp})
+          |> add_log("WebRTC signaling complete")
+
+        # Start the ElevenLabs WebSocket bridge
+        send(self(), :start_elevenlabs_bridge)
+
+        {:noreply, socket}
+
+      {:error, reason} ->
+        socket =
+          socket
+          |> assign(conversation_status: "error")
+          |> add_log("SDP negotiation failed: #{inspect(reason)}")
+
+        {:noreply, socket}
+    end
+  end
+
+  # Receive ICE candidate from browser
+  @impl true
+  def handle_event("ice_candidate", %{"candidate" => candidate}, socket) do
+    if socket.assigns.peer_server_pid do
+      ElevenlabsWebrtc.PeerServer.add_ice_candidate(socket.assigns.peer_server_pid, candidate)
+    end
+
+    {:noreply, socket}
+  end
+
+  # Stop conversation
+  @impl true
+  def handle_event("stop_conversation", _params, socket) do
+    socket = stop_conversation(socket)
+    {:noreply, socket}
+  end
+
+  # Conversation log/status from JS hook
   @impl true
   def handle_event("conversation_log", %{"message" => message}, socket) do
     {:noreply, add_log(socket, message)}
@@ -432,6 +505,111 @@ defmodule ElevenlabsWebrtcWeb.PatientLive do
   @impl true
   def handle_event("conversation_status", %{"status" => status}, socket) do
     {:noreply, assign(socket, conversation_status: status)}
+  end
+
+  # --- handle_info for WebRTC/ElevenLabs events ---
+
+  # Start ElevenLabs WebSocket bridge after SDP exchange
+  def handle_info(:start_elevenlabs_bridge, socket) do
+    agent_id = socket.assigns.current_agent_id
+
+    case ElevenlabsClient.get_signed_url(agent_id) do
+      {:ok, %{"signed_url" => ws_url}} ->
+        {:ok, bridge_pid} =
+          ElevenlabsWebrtc.ConversationSupervisor.start_elevenlabs_ws(
+            ws_url: ws_url,
+            peer_server_pid: socket.assigns.peer_server_pid,
+            live_view_pid: self()
+          )
+
+        # Link the bridge to the peer server
+        ElevenlabsWebrtc.PeerServer.set_bridge(socket.assigns.peer_server_pid, bridge_pid)
+
+        socket =
+          socket
+          |> assign(bridge_pid: bridge_pid, conversation_status: "connecting to ElevenLabs")
+          |> add_log("Connecting to ElevenLabs...")
+
+        {:noreply, socket}
+
+      {:error, _status, body} ->
+        msg = body["error"] || "Failed to get ElevenLabs WebSocket URL"
+        socket = socket |> assign(conversation_status: "error") |> add_log("Error: #{msg}")
+        {:noreply, socket}
+    end
+  end
+
+  # ICE candidate from server PeerConnection -> push to browser
+  def handle_info({:ice_candidate, candidate}, socket) do
+    {:noreply, push_event(socket, "ice_candidate", %{candidate: candidate})}
+  end
+
+  # WebRTC connection state changes
+  def handle_info({:webrtc_connection_state, :connected}, socket) do
+    socket =
+      socket
+      |> assign(conversation_status: "connected")
+      |> add_log("WebRTC connected")
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:webrtc_connection_state, state}, socket) do
+    {:noreply, add_log(socket, "WebRTC state: #{state}")}
+  end
+
+  # ElevenLabs conversation events
+  def handle_info({:elevenlabs_event, :connected}, socket) do
+    socket =
+      socket
+      |> assign(conversation_status: "connected")
+      |> add_log("Connected to ElevenLabs")
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:elevenlabs_event, {:initiated, conversation_id}}, socket) do
+    {:noreply, add_log(socket, "Conversation started: #{conversation_id}")}
+  end
+
+  def handle_info({:elevenlabs_event, {:agent_response, text}}, socket) do
+    {:noreply, add_log(socket, "Agent: #{text}")}
+  end
+
+  def handle_info({:elevenlabs_event, {:user_transcript, text}}, socket) do
+    {:noreply, add_log(socket, "You: #{text}")}
+  end
+
+  def handle_info({:elevenlabs_event, :interruption}, socket) do
+    {:noreply, add_log(socket, "Interruption detected")}
+  end
+
+  def handle_info({:elevenlabs_event, :disconnected}, socket) do
+    socket =
+      socket
+      |> assign(conversation_status: "disconnected")
+      |> add_log("ElevenLabs disconnected")
+
+    {:noreply, socket}
+  end
+
+  defp stop_conversation(socket) do
+    if socket.assigns.bridge_pid do
+      ElevenlabsWebrtc.ConversationSupervisor.stop_child(socket.assigns.bridge_pid)
+    end
+
+    if socket.assigns.peer_server_pid do
+      ElevenlabsWebrtc.ConversationSupervisor.stop_child(socket.assigns.peer_server_pid)
+    end
+
+    socket
+    |> assign(
+      peer_server_pid: nil,
+      bridge_pid: nil,
+      conversation_status: "idle"
+    )
+    |> add_log("Conversation stopped")
+    |> push_event("conversation_stopped", %{})
   end
 
   # Helpers
