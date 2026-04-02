@@ -9,12 +9,12 @@ defmodule ElevenlabsWebrtcWeb.CoreComponents do
   def flash_group(assigns) do
     ~H"""
     <div class="flash-group">
-      <%= if info = Phoenix.Flash.get(@flash, :info) do %>
+      <%= if info = @flash["info"] do %>
         <div class="alert alert-info" role="alert" phx-click="lv:clear-flash" phx-value-key="info">
           <%= info %>
         </div>
       <% end %>
-      <%= if error = Phoenix.Flash.get(@flash, :error) do %>
+      <%= if error = @flash["error"] do %>
         <div
           class="alert alert-error"
           role="alert"

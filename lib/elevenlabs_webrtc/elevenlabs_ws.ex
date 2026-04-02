@@ -61,6 +61,7 @@ defmodule ElevenlabsWebrtc.ElevenlabsWs do
     {:ok, state}
   end
 
+  @impl true
   def handle_frame({:binary, _data}, state) do
     {:ok, state}
   end
@@ -81,6 +82,7 @@ defmodule ElevenlabsWebrtc.ElevenlabsWs do
     {:reply, {:text, msg}, state}
   end
 
+  @impl true
   def handle_info(_msg, state) do
     {:ok, state}
   end

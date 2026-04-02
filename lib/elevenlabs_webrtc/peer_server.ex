@@ -95,22 +95,26 @@ defmodule ElevenlabsWebrtc.PeerServer do
     {:noreply, state}
   end
 
+  @impl true
   def handle_cast({:set_bridge, bridge_pid}, state) do
     {:noreply, %{state | bridge_pid: bridge_pid}}
   end
 
+  @impl true
   def handle_cast({:send_audio, audio_data}, state) when is_binary(audio_data) do
     if state.outgoing_track_id do
       # Create an RTP packet with the audio payload.
       # For audio from ElevenLabs (PCM), this needs codec conversion to Opus
       # before sending. See ElevenlabsWebrtc.AudioCodec for the conversion pipeline.
-      packet =
-        ExRTP.Packet.new(audio_data,
-          payload_type: 111,
-          sequence_number: state.rtp_seq,
-          timestamp: state.rtp_ts,
-          marker: false
-        )
+      # ExWebRTC.PeerConnection.send_rtp/3 auto-sets payload_type, SSRC,
+      # and RTP extensions, so we only need to provide the core fields.
+      packet = %ExRTP.Packet{
+        payload_type: 111,
+        sequence_number: rem(state.rtp_seq, 65_536),
+        timestamp: rem(state.rtp_ts, 4_294_967_296),
+        ssrc: 0,
+        payload: audio_data
+      }
 
       PeerConnection.send_rtp(state.pc, state.outgoing_track_id, packet)
 
@@ -121,6 +125,7 @@ defmodule ElevenlabsWebrtc.PeerServer do
     end
   end
 
+  @impl true
   def handle_cast({:send_audio, _}, state), do: {:noreply, state}
 
   # --- ex_webrtc messages ---
@@ -132,6 +137,7 @@ defmodule ElevenlabsWebrtc.PeerServer do
     {:noreply, state}
   end
 
+  @impl true
   def handle_info({:ex_webrtc, _pc, {:track, track}}, state) do
     Logger.info("WebRTC track added: #{track.kind} (id: #{track.id})")
 
@@ -144,6 +150,7 @@ defmodule ElevenlabsWebrtc.PeerServer do
     {:noreply, state}
   end
 
+  @impl true
   def handle_info({:ex_webrtc, _pc, {:rtp, _track_id, nil, packet}}, state) do
     # Audio RTP from browser - extract Opus payload and forward to ElevenLabs bridge.
     # The packet.payload contains the Opus-encoded audio frame.
@@ -155,33 +162,39 @@ defmodule ElevenlabsWebrtc.PeerServer do
     {:noreply, state}
   end
 
+  @impl true
   def handle_info({:ex_webrtc, _pc, {:connection_state_change, new_state}}, state) do
     Logger.info("WebRTC connection state: #{new_state}")
     send(state.live_view_pid, {:webrtc_connection_state, new_state})
     {:noreply, state}
   end
 
+  @impl true
   def handle_info({:ex_webrtc, _pc, {:signaling_state_change, new_state}}, state) do
     Logger.debug("WebRTC signaling state: #{new_state}")
     {:noreply, state}
   end
 
+  @impl true
   def handle_info({:ex_webrtc, _pc, {:ice_gathering_state_change, new_state}}, state) do
     Logger.debug("ICE gathering state: #{new_state}")
     {:noreply, state}
   end
 
+  @impl true
   def handle_info({:ex_webrtc, _pc, {:negotiation_needed}}, state) do
     Logger.debug("WebRTC negotiation needed")
     {:noreply, state}
   end
 
+  @impl true
   def handle_info({:ex_webrtc, _pc, msg}, state) do
     Logger.debug("Unhandled ex_webrtc message: #{inspect(msg)}")
     {:noreply, state}
   end
 
   # Resolve the outgoing track ID from transceivers once we have the answer set
+  @impl true
   def handle_info(:resolve_tracks, state) do
     case PeerConnection.get_transceivers(state.pc) do
       transceivers when is_list(transceivers) ->

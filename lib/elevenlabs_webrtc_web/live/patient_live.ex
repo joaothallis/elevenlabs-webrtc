@@ -121,6 +121,7 @@ defmodule ElevenlabsWebrtcWeb.PatientLive do
     {:noreply, assign(socket, active_tab: tab)}
   end
 
+  @impl true
   def handle_info(:load_agents, socket) do
     case ElevenlabsClient.list_agents() do
       {:ok, data} ->
@@ -510,6 +511,7 @@ defmodule ElevenlabsWebrtcWeb.PatientLive do
   # --- handle_info for WebRTC/ElevenLabs events ---
 
   # Start ElevenLabs WebSocket bridge after SDP exchange
+  @impl true
   def handle_info(:start_elevenlabs_bridge, socket) do
     agent_id = socket.assigns.current_agent_id
 
@@ -540,11 +542,13 @@ defmodule ElevenlabsWebrtcWeb.PatientLive do
   end
 
   # ICE candidate from server PeerConnection -> push to browser
+  @impl true
   def handle_info({:ice_candidate, candidate}, socket) do
     {:noreply, push_event(socket, "ice_candidate", %{candidate: candidate})}
   end
 
   # WebRTC connection state changes
+  @impl true
   def handle_info({:webrtc_connection_state, :connected}, socket) do
     socket =
       socket
@@ -554,11 +558,13 @@ defmodule ElevenlabsWebrtcWeb.PatientLive do
     {:noreply, socket}
   end
 
+  @impl true
   def handle_info({:webrtc_connection_state, state}, socket) do
     {:noreply, add_log(socket, "WebRTC state: #{state}")}
   end
 
   # ElevenLabs conversation events
+  @impl true
   def handle_info({:elevenlabs_event, :connected}, socket) do
     socket =
       socket
@@ -568,22 +574,27 @@ defmodule ElevenlabsWebrtcWeb.PatientLive do
     {:noreply, socket}
   end
 
+  @impl true
   def handle_info({:elevenlabs_event, {:initiated, conversation_id}}, socket) do
     {:noreply, add_log(socket, "Conversation started: #{conversation_id}")}
   end
 
+  @impl true
   def handle_info({:elevenlabs_event, {:agent_response, text}}, socket) do
     {:noreply, add_log(socket, "Agent: #{text}")}
   end
 
+  @impl true
   def handle_info({:elevenlabs_event, {:user_transcript, text}}, socket) do
     {:noreply, add_log(socket, "You: #{text}")}
   end
 
+  @impl true
   def handle_info({:elevenlabs_event, :interruption}, socket) do
     {:noreply, add_log(socket, "Interruption detected")}
   end
 
+  @impl true
   def handle_info({:elevenlabs_event, :disconnected}, socket) do
     socket =
       socket
