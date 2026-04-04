@@ -1,22 +1,32 @@
 # Dependencies
-node_modules/
+/deps/
+/node_modules/
+/_build/
 
-# Environment variables (NEVER commit these!)
+# Generated files
+/priv/static/assets/
+
+# Environment
 .env
 .env.local
 .env.*.local
 
-# OS files
+# Elixir
+erl_crash.dump
+*.ez
+
+# OS
 .DS_Store
 Thumbs.db
 
 # IDE
-.vscode/
 .idea/
+.vscode/
+*.swp
+*.swo
 
 # Logs
 *.log
-npm-debug.log*
 
-# Build cache
-.cache/
+# Node.js (legacy)
+package-lock.json

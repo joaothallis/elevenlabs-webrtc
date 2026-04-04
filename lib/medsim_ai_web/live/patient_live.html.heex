@@ -1,0 +1,352 @@
+<h1>MedSimAI Patient Builder</h1>
+
+<!-- Tab Navigation -->
+<div class="tabs">
+  <button class={"tab #{if @active_tab == :create, do: "active"}"} phx-click="switch_tab" phx-value-tab="create">Simple Patient</button>
+  <button class={"tab #{if @active_tab == :workflow, do: "active"}"} phx-click="switch_tab" phx-value-tab="workflow">Adaptive Patient</button>
+  <button class={"tab #{if @active_tab == :existing, do: "active"}"} phx-click="switch_tab" phx-value-tab="existing">Use Existing</button>
+</div>
+
+<!-- Create Agent Tab -->
+<section :if={@active_tab == :create} class="tab-content active">
+  <h2>Create New Patient</h2>
+  <form phx-submit="create_simple_patient">
+    <div class="form-group">
+      <label for="agent_name">Patient Name</label>
+      <input type="text" name="agent_name" id="agent_name" placeholder="My Custom Patient" />
+    </div>
+
+    <div class="form-group">
+      <label for="agent_prompt">Patient History *</label>
+      <textarea name="agent_prompt" id="agent_prompt" rows="6" placeholder="Patient history, medical history, medications, allergies, etc." required></textarea>
+    </div>
+
+    <div class="form-group">
+      <label for="first_message">Patient Goals (optional)</label>
+      <input type="text" name="first_message" id="first_message" placeholder="Hello Doctor, What do you want?" />
+    </div>
+
+    <div class="form-group">
+      <label for="voice_id">Voice</label>
+      <div class="voice-select-wrapper">
+        <select name="voice_id" id="voice_id">
+          <option :for={v <- @voices} value={v["voice_id"]}><%= v["name"] %> (<%= v["category"] || "custom" %>)</option>
+        </select>
+        <button type="button" class="btn-preview" phx-click="preview_voice" phx-value-url="" title="Preview voice">&#9654;</button>
+        <button type="button" class="btn-browse" phx-click="open_voice_library" phx-value-target="create" title="Browse Voice Library">&#128269;</button>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="language">Language</label>
+        <select name="language" id="language">
+          <option value="en">English</option>
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="it">Italian</option>
+          <option value="pt">Portuguese</option>
+          <option value="pl">Polish</option>
+          <option value="hi">Hindi</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+          <option value="zh">Chinese</option>
+        </select>
+      </div>
+    </div>
+
+    <button type="submit">Create Patient</button>
+  </form>
+</section>
+
+<!-- Adaptive Patient Designer Tab -->
+<section :if={@active_tab == :workflow} class="tab-content active">
+  <h2><%= if @editing_agent_id, do: "Edit Adaptive Patient", else: "Adaptive Patient Designer" %></h2>
+  <p class="designer-intro">Create patients that respond dynamically based on how medical students treat them.</p>
+
+  <form phx-submit="create_adaptive_patient" id="patient-designer-form">
+    <!-- Patient Case Section -->
+    <div class="designer-section">
+      <h3>Patient Case</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="patient_name">Patient Name *</label>
+          <input type="text" name="patient_name" id="patient_name" placeholder="e.g., John Smith" value="Marcus Johnson" required />
+        </div>
+        <div class="form-group form-group-small">
+          <label for="patient_age">Age</label>
+          <input type="number" name="patient_age" id="patient_age" placeholder="45" min="1" max="120" value="34" />
+        </div>
+        <div class="form-group form-group-small">
+          <label for="patient_gender">Gender</label>
+          <select name="patient_gender" id="patient_gender">
+            <option value="male" selected>Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="presenting_complaint">Presenting Complaint *</label>
+        <input type="text" name="presenting_complaint" id="presenting_complaint" placeholder="e.g., Chest pain for 2 days" value="Called crisis line due to wife's concerns about his behavior over the past week" required />
+      </div>
+
+      <div class="form-group">
+        <label for="hidden_diagnosis">Hidden Diagnosis (what the student should discover)</label>
+        <input type="text" name="hidden_diagnosis" id="hidden_diagnosis" placeholder="e.g., Anxiety-induced chest pain from work stress" value="Bipolar I disorder - currently in manic episode with irritable features. Hasn't slept more than 2 hours in 4 days. Stopped taking lithium 2 weeks ago because he felt cured." />
+      </div>
+
+      <div class="form-group">
+        <label for="patient_voice">Voice</label>
+        <div class="voice-select-wrapper">
+          <select name="patient_voice" id="patient_voice">
+            <option value="">Select a voice...</option>
+            <option :for={v <- @voices} value={v["voice_id"]}><%= v["name"] %></option>
+          </select>
+          <button type="button" class="btn-preview" phx-click="preview_voice" phx-value-url="" title="Preview voice">&#9654;</button>
+          <button type="button" class="btn-browse" phx-click="open_voice_library" phx-value-target="workflow" title="Browse Voice Library">&#128269;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Initial Presentation Section -->
+    <div class="designer-section">
+      <h3>Initial Presentation</h3>
+      <p class="section-hint">How does the patient present when the conversation begins?</p>
+      <div class="form-group">
+        <label for="initial_presentation">Patient's Initial Behavior & Demeanor *</label>
+        <textarea name="initial_presentation" id="initial_presentation" rows="4" placeholder="e.g., Anxious, clutching chest, speaks quickly..." required>Speaks rapidly with pressured speech, jumping between topics. Sounds energized but irritable. Background noise suggests pacing around the room. Interrupts frequently and gets frustrated when asked to slow down. Voice is loud and animated. Occasionally laughs inappropriately or makes grandiose statements. May hear him shuffling papers or typing - claims to be working on "a revolutionary business plan."</textarea>
+      </div>
+      <div class="form-group">
+        <label for="first_words">First Words (what patient says when encounter starts)</label>
+        <input type="text" name="first_words" id="first_words" placeholder="e.g., Doctor, I've been having this chest pain..." value="Yeah, yeah, I'm fine, I don't know why my wife called you people - look, I don't have time for this, I'm in the middle of something HUGE right now. But fine, whatever, let's make this quick. What do you want to know?" />
+      </div>
+    </div>
+
+    <!-- Behavioral Pivots Section -->
+    <div class="designer-section">
+      <h3>Behavioral Pivots</h3>
+      <p class="section-hint">Define how the patient responds based on the student's approach.</p>
+
+      <div id="pivots-container">
+        <div :for={{pivot, index} <- Enum.with_index(@pivots)} class="pivot-card">
+          <div class="pivot-header">
+            <span class={"pivot-icon #{pivot["icon_class"] || "neutral"}"}>
+              <%= case pivot["icon_class"] do %>
+                <% "good" -> %>&#10004;
+                <% "bad" -> %>&#10008;
+                <% _ -> %>?
+              <% end %>
+            </span>
+            <span class="pivot-title"><%= pivot["title"] %></span>
+            <button type="button" class="pivot-remove" phx-click="remove_pivot" phx-value-index={index}>&times;</button>
+          </div>
+          <div class="pivot-body">
+            <input type="hidden" name={"pivots[#{index}][title]"} value={pivot["title"]} />
+            <div class="form-group">
+              <label>Trigger Condition</label>
+              <textarea class="pivot-condition" rows="2" name={"pivots[#{index}][condition]"} placeholder="What student behavior triggers this response?"><%= pivot["condition"] %></textarea>
+            </div>
+            <div class="form-group">
+              <label>Patient Response</label>
+              <textarea class="pivot-response" rows="3" name={"pivots[#{index}][response]"} placeholder="How does the patient respond?"><%= pivot["response"] %></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="btn-secondary btn-add" phx-click="add_pivot">
+        + Add Another Behavioral Pivot
+      </button>
+    </div>
+
+    <!-- Preview Section -->
+    <div class="designer-section preview-section">
+      <h3>Workflow Preview</h3>
+      <div class="workflow-preview">
+        <div class="preview-node preview-start">Start</div>
+        <div class="preview-arrow">&rarr;</div>
+        <div class="preview-node preview-initial">Initial State</div>
+        <div class="preview-branches">
+          <div :for={pivot <- @pivots} class={"preview-branch preview-branch-#{pivot["icon_class"] || "neutral"}"}>
+            <span class="preview-arrow">&rarr;</span>
+            <div class="preview-node"><%= String.slice(pivot["title"], 0, 25) %></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="designer-actions">
+      <button type="button" class="btn-secondary" phx-click="switch_tab" phx-value-tab="create">Reset Form</button>
+      <button type="submit"><%= if @editing_agent_id, do: "Update Patient", else: "Create Adaptive Patient" %></button>
+    </div>
+  </form>
+</section>
+
+<!-- Existing Agents Tab -->
+<section :if={@active_tab == :existing} class="tab-content active">
+  <h2>Your Patients</h2>
+  <div class="agents-list">
+    <p :if={@agents == []}>No agents found. Create one first!</p>
+    <div :for={agent <- @agents} class="agent-card">
+      <div class="agent-card-info">
+        <h4><%= agent["name"] || "Unnamed Agent" %></h4>
+        <p>ID: <%= agent["agent_id"] %></p>
+      </div>
+      <div class="agent-card-actions">
+        <button class="btn-edit" phx-click="open_edit_modal" phx-value-id={agent["agent_id"]}>Edit</button>
+        <button phx-click="select_agent" phx-value-id={agent["agent_id"]} phx-value-name={agent["name"] || "Unnamed Agent"}>Select</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Voice Library Modal -->
+<div :if={@voice_library_open} class="modal" phx-click-away="close_voice_library" phx-window-keydown="close_voice_library" phx-key="Escape">
+  <div class="modal-content modal-large">
+    <div class="modal-header">
+      <h2>Voice Library</h2>
+      <button class="modal-close" phx-click="close_voice_library">&times;</button>
+    </div>
+    <div class="voice-library-content">
+      <form phx-submit="search_voices" class="voice-search">
+        <input type="text" name="search" placeholder="Search voices..." />
+        <select name="language">
+          <option value="">All Languages</option>
+          <option value="en">English</option>
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="it">Italian</option>
+          <option value="pt">Portuguese</option>
+          <option value="pl">Polish</option>
+          <option value="hi">Hindi</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+          <option value="zh">Chinese</option>
+        </select>
+        <select name="gender">
+          <option value="">All Genders</option>
+          <option value="male">Male</option>
+          <option value="female">Female</option>
+          <option value="neutral">Neutral</option>
+        </select>
+        <button type="submit">Search</button>
+      </form>
+
+      <div class="voice-suggestions">
+        Quick:
+        <button :for={term <- ~w(Child Kid Boy Girl Teen Young)} type="button" class="chip" phx-click="search_voices" phx-value-search={term}><%= term %></button>
+      </div>
+
+      <div class="voice-library-results">
+        <p :if={@voice_library_results == []}>Search for voices above to browse the library.</p>
+        <div :for={v <- @voice_library_results} class="voice-library-card">
+          <div class="voice-library-info">
+            <h4><%= v["name"] %></h4>
+            <p><%= v["description"] || "No description" %></p>
+            <div class="voice-meta">
+              <span :if={v["category"]} class="voice-tag"><%= v["category"] %></span>
+              <span :if={v["labels"]["language"]} class="voice-tag"><%= String.upcase(v["labels"]["language"]) %></span>
+              <span :if={v["labels"]["gender"]} class="voice-tag"><%= v["labels"]["gender"] %></span>
+              <span :if={v["labels"]["age"]} class="voice-tag"><%= v["labels"]["age"] %></span>
+              <span :if={v["labels"]["accent"]} class="voice-tag"><%= v["labels"]["accent"] %></span>
+            </div>
+          </div>
+          <div class="voice-library-actions">
+            <button class="btn-preview btn-preview-lib" phx-click="preview_voice" phx-value-url={v["preview_url"]}>&#9654;</button>
+            <button phx-click="add_voice" phx-value-owner_id={v["public_owner_id"]} phx-value-voice_id={v["voice_id"]} phx-value-name={v["name"]}>Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Agent Modal -->
+<div :if={@edit_modal_open && @edit_agent} class="modal" phx-click-away="close_edit_modal" phx-window-keydown="close_edit_modal" phx-key="Escape">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>Edit Patient</h2>
+      <button class="modal-close" phx-click="close_edit_modal">&times;</button>
+    </div>
+    <form phx-submit="save_agent">
+      <input type="hidden" name="agent_id" value={@edit_agent["agent_id"]} />
+
+      <div class="form-group">
+        <label for="edit_name">Patient Name</label>
+        <input type="text" name="name" id="edit_name" value={@edit_agent["name"]} />
+      </div>
+
+      <div class="form-group">
+        <label for="edit_prompt">System Prompt</label>
+        <textarea name="prompt" id="edit_prompt" rows="6"><%= get_in(@edit_agent, ["conversation_config", "agent", "prompt", "prompt"]) || "" %></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="edit_first_message">First Message</label>
+        <input type="text" name="first_message" id="edit_first_message" value={get_in(@edit_agent, ["conversation_config", "agent", "first_message"]) || ""} />
+      </div>
+
+      <div class="form-group">
+        <label for="edit_voice_id">Voice</label>
+        <div class="voice-select-wrapper">
+          <select name="voice_id" id="edit_voice_id">
+            <option :for={v <- @voices} value={v["voice_id"]} selected={v["voice_id"] == get_in(@edit_agent, ["conversation_config", "tts", "voice_id"])}>
+              <%= v["name"] %> (<%= v["category"] || "custom" %>)
+            </option>
+          </select>
+          <button type="button" class="btn-preview" phx-click="preview_voice" phx-value-url="" title="Preview voice">&#9654;</button>
+          <button type="button" class="btn-browse" phx-click="open_voice_library" phx-value-target="edit" title="Browse Voice Library">&#128269;</button>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="edit_language">Language</label>
+          <select name="language" id="edit_language">
+            <option :for={{code, label} <- [{"en", "English"}, {"es", "Spanish"}, {"fr", "French"}, {"de", "German"}, {"it", "Italian"}, {"pt", "Portuguese"}, {"pl", "Polish"}, {"hi", "Hindi"}, {"ja", "Japanese"}, {"ko", "Korean"}, {"zh", "Chinese"}]}
+                    value={code}
+                    selected={code == (get_in(@edit_agent, ["conversation_config", "agent", "language"]) || "en")}>
+              <%= label %>
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" phx-click="close_edit_modal">Cancel</button>
+        <button type="button" class="btn-danger" phx-click="delete_agent" phx-value-id={@edit_agent["agent_id"]} data-confirm="Are you sure you want to delete this agent?">Delete Agent</button>
+        <button type="submit">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Conversation Section -->
+<section :if={@current_agent_id} class="conversation-section" id="conversation-section" phx-hook="WebRTCHook">
+  <h2>Conversation</h2>
+  <p>Agent: <span><%= @current_agent_name || "None selected" %></span></p>
+
+  <div class="controls">
+    <div class="buttons">
+      <button phx-click="start_conversation" disabled={@conversation_status not in ["idle", "disconnected", "error"]}>Start Conversation</button>
+      <button phx-click="stop_conversation" disabled={@conversation_status in ["idle", "disconnected"]}>Stop Conversation</button>
+    </div>
+    <p class="status">Status: <%= @conversation_status %></p>
+  </div>
+
+  <div>
+    <h3>Events</h3>
+    <div class="log">
+      <div :for={entry <- @conversation_log} class="log-entry">
+        [<%= entry.time %>] <%= entry.message %>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Audio Preview Hook -->
+<div id="audio-preview" phx-hook="AudioPreviewHook" style="display:none"></div>
